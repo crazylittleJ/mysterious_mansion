@@ -1,0 +1,15 @@
+{
+  "name": "gudong-betrayal",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["server", "client"],
+  "scripts": {
+    "build": "npm run build -w client && npm run build -w server && npm run collect-static",
+    "collect-static": "rm -rf server/public && cp -r client/dist server/public",
+    "start": "node server/dist/index.js",
+    "test": "npm run test -w server",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client"
+  },
+  "engines": { "node": ">=20" }
+}

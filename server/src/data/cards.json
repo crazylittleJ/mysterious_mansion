@@ -1,0 +1,20 @@
+{
+  "comment": "卡片定義（骨架版 placeholder，文字全部原創）。effect 是封閉 enum：STAT_DELTA / NONE。之後 Gemini 只生成 flavor 文字，效果仍由 enum 決定。",
+  "events": [
+    { "id": "ev-jiafeng", "name": "夾縫來信", "text": "牆縫中掉出一封舊信，字跡潦草。做一次眼力檢定（4+）：成功 +1 眼力，失敗 -1 心性。", "effect": "CHECK", "stat": "yanli", "target": 4, "success": { "stat": "yanli", "delta": 1 }, "fail": { "stat": "xinxing", "delta": -1 } },
+    { "id": "ev-yingzi", "name": "櫃後影子", "text": "展櫃後彷彿有人影一閃。-1 心性。", "effect": "STAT_DELTA", "stat": "xinxing", "delta": -1 },
+    { "id": "ev-antu", "name": "半張暗圖", "text": "撿到半張宅子的舊圖，記住了幾條捷徑。+1 手法。", "effect": "STAT_DELTA", "stat": "shoufa", "delta": 1 },
+    { "id": "ev-yiwei", "name": "刺鼻的味道", "text": "地板下滲出防腐藥水的味道，讓人頭暈。做一次氣力檢定（4+）：失敗 -1 氣力。", "effect": "CHECK", "stat": "qili", "target": 4, "success": null, "fail": { "stat": "qili", "delta": -1 } }
+  ],
+  "items": [
+    { "id": "it-fangdadeng", "name": "放大燈", "text": "鑑定用的老放大燈。持有時 +1 眼力。", "effect": "HOLD_BONUS", "stat": "yanli", "delta": 1 },
+    { "id": "it-tiechi", "name": "包鐵短尺", "text": "順手的傢伙。持有時 +1 氣力。", "effect": "HOLD_BONUS", "stat": "qili", "delta": 1 },
+    { "id": "it-ruanbu-xie", "name": "軟布鞋", "text": "走梁上樑下都沒聲音。持有時 +1 手法。", "effect": "HOLD_BONUS", "stat": "shoufa", "delta": 1 }
+  ],
+  "omens": [
+    { "id": "om-guijia", "name": "裂紋龜甲", "text": "一塊佈滿裂紋的龜甲，紋路像是活的。持有時 +1 眼力。", "effect": "HOLD_BONUS", "stat": "yanli", "delta": 1 },
+    { "id": "om-tongjing", "name": "無影銅鏡", "text": "鏡面照不出你的影子。持有時 +1 心性。", "effect": "HOLD_BONUS", "stat": "xinxing", "delta": 1 },
+    { "id": "om-canjuan", "name": "焦邊殘卷", "text": "殘卷邊緣焦黑，記載著九件古董的名錄。持有時 +1 眼力。", "effect": "HOLD_BONUS", "stat": "yanli", "delta": 1 },
+    { "id": "om-yudiao", "name": "缺角玉雕", "text": "玉雕缺了一角，握著它掌心發燙。持有時 +1 氣力。", "effect": "HOLD_BONUS", "stat": "qili", "delta": 1 }
+  ]
+}

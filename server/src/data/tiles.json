@@ -1,0 +1,28 @@
+{
+  "comment": "板塊定義。doors 順序 [N,E,S,W]；floors 允許出現的樓層；icon 觸發抽卡；imageUrl 留空，後期 AI 美術直接填 URL。所有名稱與內容為古董局中局世界觀原創。",
+  "startTiles": [
+    { "defId": "qianting", "name": "前廳", "floors": ["GROUND"], "doors": [true, true, true, true], "icon": "NONE", "isStart": true, "startFloor": "GROUND", "stairs": true, "imageUrl": "" },
+    { "defId": "anlou-ti", "name": "暗樓梯口", "floors": ["UPPER"], "doors": [true, true, true, true], "icon": "NONE", "isStart": true, "startFloor": "UPPER", "stairs": true, "imageUrl": "" },
+    { "defId": "dijiao", "name": "地窖入口", "floors": ["BASEMENT"], "doors": [true, true, false, false], "icon": "NONE", "isStart": true, "startFloor": "BASEMENT", "stairs": true, "imageUrl": "" }
+  ],
+  "tiles": [
+    { "defId": "zhangui-changlang", "name": "展櫃長廊", "floors": ["GROUND", "UPPER"], "doors": [true, false, true, false], "icon": "EVENT", "imageUrl": "" },
+    { "defId": "zhangfang", "name": "賬房", "floors": ["GROUND"], "doors": [true, true, false, false], "icon": "ITEM", "imageUrl": "" },
+    { "defId": "xiufu-gongfang", "name": "修復工坊", "floors": ["GROUND", "BASEMENT"], "doors": [true, false, false, true], "icon": "ITEM", "imageUrl": "" },
+    { "defId": "tianjing", "name": "天井", "floors": ["GROUND"], "doors": [true, true, true, true], "icon": "NONE", "imageUrl": "" },
+    { "defId": "yanguan-jiuzhi", "name": "煙館舊址", "floors": ["GROUND", "UPPER"], "doors": [true, false, false, true], "icon": "EVENT", "imageUrl": "" },
+    { "defId": "beitie-shi", "name": "碑帖室", "floors": ["UPPER"], "doors": [true, true, false, false], "icon": "OMEN", "imageUrl": "" },
+    { "defId": "ange", "name": "暗閣", "floors": ["UPPER"], "doors": [true, false, false, false], "icon": "OMEN", "imageUrl": "" },
+    { "defId": "ciqi-kufang", "name": "瓷器庫房", "floors": ["UPPER", "BASEMENT"], "doors": [true, true, true, false], "icon": "ITEM", "imageUrl": "" },
+    { "defId": "guhua-guajian", "name": "古畫掛間", "floors": ["UPPER"], "doors": [true, false, true, false], "icon": "EVENT", "imageUrl": "" },
+    { "defId": "cangbao-ku", "name": "藏寶庫", "floors": ["BASEMENT"], "doors": [true, false, false, false], "icon": "ITEM", "imageUrl": "" },
+    { "defId": "dixia-paimaiting", "name": "地下拍賣廳", "floors": ["BASEMENT"], "doors": [true, true, true, true], "icon": "EVENT", "imageUrl": "" },
+    { "defId": "mishi", "name": "密室", "floors": ["BASEMENT"], "doors": [true, false, false, false], "icon": "OMEN", "ritualRoom": true, "imageUrl": "" },
+    { "defId": "shenmi-dianti", "name": "神秘電梯", "floors": ["GROUND", "UPPER", "BASEMENT"], "doors": [true, false, false, false], "icon": "NONE", "elevator": true, "imageUrl": "" },
+    { "defId": "louti-jian", "name": "樓梯間", "floors": ["GROUND", "UPPER"], "doors": [true, true, false, false], "icon": "NONE", "stairs": true, "imageUrl": "" },
+    { "defId": "juanzhou-fang", "name": "卷軸房", "floors": ["GROUND", "UPPER"], "doors": [true, true, false, true], "icon": "OMEN", "imageUrl": "" },
+    { "defId": "duantou-lang", "name": "斷頭廊", "floors": ["UPPER", "BASEMENT"], "doors": [true, false, false, false], "icon": "EVENT", "imageUrl": "" },
+    { "defId": "shuijing-jian", "name": "水井間", "floors": ["BASEMENT"], "doors": [true, true, false, false], "icon": "OMEN", "imageUrl": "" },
+    { "defId": "mubiao-shi", "name": "墓表室", "floors": ["BASEMENT"], "doors": [true, false, true, false], "icon": "EVENT", "imageUrl": "" }
+  ]
+}
