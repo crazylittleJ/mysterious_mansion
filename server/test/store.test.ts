@@ -6,7 +6,7 @@ const snap = (code: string): GameSnapshot => ({
   roomCode: code,
   updatedAt: 0,
   publicState: {},
-  secrets: { trueTraitorSeat: -1, tokenBySeat: null, decks: { events: [], items: [], omens: [] }, seatByToken: {}, secretVariant: false },
+  secrets: { trueTraitorSeat: -1, tokenBySeat: null, decks: { events: [], items: [], omens: [] }, seatByName: {}, secretVariant: false },
 });
 
 describe("MemoryStore TTL", () => {

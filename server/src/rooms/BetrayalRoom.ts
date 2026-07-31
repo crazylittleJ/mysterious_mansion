@@ -23,11 +23,31 @@ import cardsJson from "../data/cards.json";
 
 const RECONNECT_SECONDS = 120;
 
+/**
+ * 無人在線後多久解散房間並清檔。可用環境變數覆寫（毫秒）。
+ * 預設 30 分鐘：足夠短暫離線回來，又能及時釋放存檔名額。
+ */
+const ROOM_IDLE_TIMEOUT_MS = Number(process.env.ROOM_IDLE_TIMEOUT_MS || 30 * 60 * 1000);
+/**
+ * PURGE_INPROGRESS_ON_IDLE=1 時，連「進行中」的局在 idle 逾時後也一併刪檔。
+ * 預設關閉，以保留「隔天回來續玩」功能（進行中的局仍靠 24h TTL 收尾）。
+ */
+const PURGE_INPROGRESS_ON_IDLE = process.env.PURGE_INPROGRESS_ON_IDLE === "1";
+
+/** 名稱正規化：去頭尾空白、壓縮連續空白、截斷 12 字，作為顯示名；比對鍵再轉小寫。 */
+export function normName(raw: string): string {
+  return (raw || "").trim().replace(/\s+/g, " ").slice(0, 12);
+}
+function nameKey(raw: string): string {
+  return normName(raw).toLowerCase();
+}
+
 interface Secrets {
   trueTraitorSeat: number;
   tokenBySeat: Record<number, number> | null;
   decks: { events: string[]; items: string[]; omens: string[] };
-  seatByToken: Record<string, number>;
+  /** 正規化名稱鍵（nameKey）→ 座位 */
+  seatByName: Record<string, number>;
   secretVariant: boolean;
 }
 
@@ -38,12 +58,13 @@ export class BetrayalRoom extends Room<GameState> {
     trueTraitorSeat: -1,
     tokenBySeat: null,
     decks: { events: [], items: [], omens: [] },
-    seatByToken: {},
+    seatByName: {},
     secretVariant: false,
   };
   private seatBySession = new Map<string, number>();
   private scenario: HauntScenario | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
+  private idleTimer: NodeJS.Timeout | null = null;
 
   // ---------------------------------------------------------------- lifecycle
 
@@ -74,26 +95,34 @@ export class BetrayalRoom extends Room<GameState> {
     }
 
     this.registerHandlers();
+    // 建立後若沒人 join（例如從快照重建卻無人回來），閒置逾時自動收攤
+    this.armIdleIfEmpty();
   }
 
-  async onJoin(client: Client, options: { playerToken?: string; name?: string }) {
-    const token = options.playerToken || client.sessionId;
-    let seat = this.secrets.seatByToken[token];
+  async onJoin(client: Client, options: { name?: string }) {
+    // 以「玩家名稱」作為唯一識別（非 IP、非 token）。同名即視為同一人。
+    const display = normName(options.name || "");
+    if (!display) throw new Error("NO_NAME: 請先輸入名號再入宅");
+    const key = nameKey(display);
+
+    let seat = this.secrets.seatByName[key];
 
     if (seat === undefined) {
       // 新玩家：遊戲已開始就不收新人
       if (this.state.phase !== Phase.LOBBY) throw new Error("GAME_STARTED: 這局已開打，無法中途加入");
       seat = this.nextFreeSeat();
-      if (seat < 0) throw new Error("ROOM_FULL");
-      this.secrets.seatByToken[token] = seat;
+      if (seat < 0) throw new Error("ROOM_FULL: 這局人數已滿");
+      this.secrets.seatByName[key] = seat;
       const p = new PlayerState();
       p.seatIndex = seat;
-      p.name = (options.name || `玩家${seat + 1}`).slice(0, 12);
+      p.name = display;
+      p.connected = true;
       this.state.players.set(String(seat), p);
       this.log(`${p.name} 入座（座位 ${seat + 1}）`);
     } else {
-      // 回鍋玩家（斷線重連或存檔續玩）
+      // 同名回鍋：斷線重連或存檔續玩。若該名號目前仍有人在線，拒絕重複佔用。
       const p = this.state.players.get(String(seat));
+      if (p?.connected) throw new Error("NAME_TAKEN: 此名號正在使用中，請換一個");
       if (p) {
         p.connected = true;
         this.log(`${p.name} 重新連線`);
@@ -102,6 +131,9 @@ export class BetrayalRoom extends Room<GameState> {
     }
 
     this.seatBySession.set(client.sessionId, seat);
+    // 直接告知 client 自己的座位，取代舊版靠 log 正則猜座位的脆弱做法
+    client.send(ServerMsg.YOUR_SEAT, { seat, name: this.state.players.get(String(seat))?.name });
+    this.disarmIdle();
     await this.persist();
   }
 
@@ -111,28 +143,64 @@ export class BetrayalRoom extends Room<GameState> {
     if (p) p.connected = false;
     this.seatBySession.delete(client.sessionId);
     await this.persist();
+    this.armIdleIfEmpty();
 
     if (!consented) {
       try {
         // 短斷線：兩分鐘內回來直接續（長離線走存檔快照重建）
         const rejoined = await this.allowReconnection(client, RECONNECT_SECONDS);
-        const s = this.secrets.seatByToken; // token 綁定不變
         this.seatBySession.set(rejoined.sessionId, seat!);
         if (p) p.connected = true;
+        this.disarmIdle();
+        rejoined.send(ServerMsg.YOUR_SEAT, { seat: seat!, name: p?.name });
         this.resendPrivateInfo(rejoined, seat!);
       } catch {
-        /* 逾時：等玩家之後用 playerToken 走快照回房 */
+        /* 逾時：等玩家之後用同名號走快照回房 */
       }
     }
   }
 
   async onDispose() {
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    // 房間解散前落最後一版快照；結束的遊戲直接刪檔
-    if (this.state.phase === Phase.GAME_END) {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    // 解散前決定清檔或留檔：
+    // - 已結束(GAME_END) → 刪
+    // - 從沒開局(LOBBY)   → 刪（別讓空候客房佔用 3 局名額）
+    // - 進行中           → 留最後快照，供 24h 內同名續玩（除非強制清除）
+    const phase = this.state.phase;
+    const shouldPurge =
+      phase === Phase.GAME_END || phase === Phase.LOBBY || PURGE_INPROGRESS_ON_IDLE;
+    if (shouldPurge) {
       await getStore().delete(this.state.roomCode);
     } else {
       await this.persist(true);
+    }
+  }
+
+  // ------------------------------------------------------------- idle timeout
+
+  private connectedCount(): number {
+    let n = 0;
+    this.state.players.forEach((p) => {
+      if (p.connected) n++;
+    });
+    return n;
+  }
+
+  /** 全員離線時啟動閒置計時器；逾時就解散房間（onDispose 依 phase 決定是否清檔）。 */
+  private armIdleIfEmpty() {
+    if (this.connectedCount() > 0) return;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      this.log("房間閒置逾時，收攤。");
+      this.disconnect().catch(() => {});
+    }, ROOM_IDLE_TIMEOUT_MS);
+  }
+
+  private disarmIdle() {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
     }
   }
 
@@ -672,7 +740,7 @@ export class BetrayalRoom extends Room<GameState> {
         trueTraitorSeat: this.secrets.trueTraitorSeat,
         tokenBySeat: this.secrets.tokenBySeat,
         decks: this.secrets.decks,
-        seatByToken: this.secrets.seatByToken,
+        seatByName: this.secrets.seatByName,
         secretVariant: this.secrets.secretVariant,
       },
     };
@@ -718,7 +786,11 @@ export class BetrayalRoom extends Room<GameState> {
       state.monsters.push(m);
     }
     this.setState(state);
-    this.secrets = { ...snapshot.secrets };
+    this.secrets = {
+      ...snapshot.secrets,
+      // 舊快照相容：若無 seatByName 則給空物件（舊 token 快照放棄續座，改以名稱重新綁定）
+      seatByName: (snapshot.secrets as any).seatByName ?? {},
+    };
     if (state.scenarioId) this.scenario = scenarioById(state.scenarioId);
   }
 

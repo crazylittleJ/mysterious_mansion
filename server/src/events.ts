@@ -39,6 +39,8 @@ export enum ClientIntent {
 
 /** 伺服器 → 客戶端：私訊/廣播訊息型別 */
 export enum ServerMsg {
+  /** 私訊：入座/重連後告知你自己的座位 { seat, name } —— client 不必再靠 log 猜座位 */
+  YOUR_SEAT = "YOUR_SEAT",
   /** 私訊：你的水滴標記號碼 { number } */
   YOUR_TOKEN = "YOUR_TOKEN",
   /** 私訊：你的陣營與勝利條件全文 { camp, objective } */

@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Client, Room } from "colyseus.js";
+
+// Pixi 較重（約 190KB gzip），只在切到「動畫」模式時才載入
+const PixiBoard = lazy(() => import("./PixiBoard"));
 
 /** 與 server events.ts 對齊的封閉集合 */
 const Intent = {
@@ -15,16 +18,6 @@ const FLOOR_NAME: Record<string, string> = { UPPER: "暗間（樓上）", GROUND
 const STAT_NAME: Record<string, string> = { yanli: "眼力", shoufa: "手法", xinxing: "心性", qili: "氣力" };
 const DIR_NAME = ["北", "東", "南", "西"];
 const TILE = 96;
-
-function tokenForBrowser(): string {
-  const k = "gudong-player-token";
-  let t = localStorage.getItem(k);
-  if (!t) {
-    t = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem(k, t);
-  }
-  return t;
-}
 
 function wsEndpoint(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -47,47 +40,43 @@ export default function App() {
   const [name, setName] = useState(localStorage.getItem("gudong-name") || "");
   const [code, setCode] = useState("");
   const [secretVariant, setSecretVariant] = useState(true);
+  const [boardMode, setBoardMode] = useState<"svg" | "pixi">(
+    (localStorage.getItem("gudong-board") as "svg" | "pixi") || "svg"
+  );
+  const setBoard = (m: "svg" | "pixi") => {
+    setBoardMode(m);
+    localStorage.setItem("gudong-board", m);
+  };
 
   const pushLog = (e: LogEntry) => setLogs((l) => [...l.slice(-200), e]);
 
   async function join() {
     setErr("");
+    const cleanName = name.trim();
+    if (!cleanName) {
+      setErr("請先輸入名號");
+      return;
+    }
     try {
       const client = new Client(wsEndpoint());
-      const playerToken = tokenForBrowser();
-      localStorage.setItem("gudong-name", name);
+      localStorage.setItem("gudong-name", cleanName);
       const r = await client.joinOrCreate("gudong-betrayal", {
         roomCode: code.trim().toUpperCase(),
-        playerToken,
-        name: name || undefined,
+        name: cleanName, // 以名稱作為玩家識別
         secretVariant,
       });
-      wire(r, playerToken);
+      wire(r);
       setRoom(r);
     } catch (e: any) {
       setErr(String(e?.message || e));
     }
   }
 
-  function wire(r: Room, playerToken: string) {
-    r.onStateChange(() => {
-      const s = (r.state as any).toJSON();
-      setSnap(s);
-      // 用 playerToken 對不到座位（token 只在 server），改用姓名不可靠 → server 以 session 綁定，
-      // 這裡從 players 裡找 connected 且 sessionId 無從得知，故由入座訊息推斷：seatIndex 記在 localStorage
-      const savedSeat = localStorage.getItem(`gudong-seat-${s.roomCode}`);
-      if (savedSeat !== null) setMySeat(Number(savedSeat));
-    });
-    r.onMessage("LOG", (m: any) => {
-      pushLog({ text: m.text });
-      // 入座訊息帶座位資訊：`XX 入座（座位 N）`——僅在自己剛入座且尚無座位時記錄
-      const match = /入座（座位 (\d+)）/.exec(m.text || "");
-      if (match && localStorage.getItem(`gudong-seat-${(r.state as any).roomCode}`) === null) {
-        // 最後入座的是自己（server 依 join 順序廣播）
-        localStorage.setItem(`gudong-seat-${(r.state as any).roomCode}`, String(Number(match[1]) - 1));
-        setMySeat(Number(match[1]) - 1);
-      }
-    });
+  function wire(r: Room) {
+    r.onStateChange(() => setSnap((r.state as any).toJSON()));
+    // server 入座/重連後直接告知座位，不再靠 log 猜
+    r.onMessage("YOUR_SEAT", (m: any) => setMySeat(m.seat));
+    r.onMessage("LOG", (m: any) => pushLog({ text: m.text }));
     r.onMessage("DICE", (m: any) =>
       pushLog({ text: `🎲 ${m.kind}：[${m.dice.join(" ")}] 合計 ${m.total}`, dice: true })
     );
@@ -97,8 +86,7 @@ export default function App() {
     );
     r.onMessage("GAME_END", () => {});
     r.onMessage("ERROR", (m: any) => pushLog({ text: `⚠ ${m.message}` }));
-    r.onLeave(() => pushLog({ text: "連線中斷，可重新加入同一房間代碼續玩" }));
-    void playerToken;
+    r.onLeave(() => pushLog({ text: "連線中斷，可用同一名號與房間代碼續玩" }));
   }
 
   useEffect(() => {
@@ -123,23 +111,32 @@ export default function App() {
   if (!room || !snap) {
     return (
       <div className="app">
-        <div className="lobby">
-          <h1>九星連珠</h1>
-          <div className="sub">古董局中局・暗局骨架 v0.1</div>
-          <label>
-            名號
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="鑑寶人名號" maxLength={12} />
-          </label>
-          <label>
-            房間代碼（同代碼即同一局；輸入舊代碼可續玩存檔）
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="例如 JIU-XING" />
-          </label>
-          <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" checked={secretVariant} onChange={(e) => setSecretVariant(e.target.checked)} style={{ width: "auto" }} />
-            暗局模式（秘密做局者・水滴儀式）
-          </label>
-          <button className="primary" onClick={join} disabled={!code.trim()}>入宅</button>
-          <div className="err">{err}</div>
+        <div className="lobby-scroll">
+          <div className="cover">
+            <img src="/cover.jpg" alt="神秘古宅" />
+          </div>
+
+          <div className="lobby">
+            <h1>神秘古宅</h1>
+            <div className="sub">九星連珠・古董局中局暗局 v0.1</div>
+
+            <label>
+              名號（作為你的身分識別，同名即同一人）
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="鑑寶人名號" maxLength={12} />
+            </label>
+            <label>
+              房間代碼（同代碼即同一局；輸入舊代碼＋原名號可續玩存檔）
+              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="例如 JIU-XING" />
+            </label>
+            <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={secretVariant} onChange={(e) => setSecretVariant(e.target.checked)} style={{ width: "auto" }} />
+              暗局模式（秘密做局者・水滴儀式）
+            </label>
+            <button className="primary" onClick={join} disabled={!code.trim() || !name.trim()}>入宅</button>
+            <div className="err">{err}</div>
+          </div>
+
+          <GameGuide />
         </div>
       </div>
     );
@@ -148,8 +145,12 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
-        <h1>九星連珠</h1>
+        <h1>神秘古宅</h1>
         <span className="code">房號 {snap.roomCode}｜第 {snap.round} 輪</span>
+        <div className="board-toggle">
+          <button className={boardMode === "svg" ? "on" : ""} onClick={() => setBoard("svg")}>圖示</button>
+          <button className={boardMode === "pixi" ? "on" : ""} onClick={() => setBoard("pixi")}>動畫</button>
+        </div>
         <span className="phase">{phaseName(snap.phase)}</span>
       </div>
 
@@ -161,19 +162,30 @@ export default function App() {
 
       <div className="main">
         <div className="board">
-          {FLOORS.map((f) => (
-            <div key={f}>
-              <div className="floor-label">{FLOOR_NAME[f]}</div>
-              <FloorMap
-                floor={f}
-                tiles={tilesByFloor[f]}
+          {boardMode === "pixi" ? (
+            <Suspense fallback={<div className="floor-label">載入畫布…</div>}>
+              <PixiBoard
                 snap={snap}
                 mySeat={mySeat}
                 myTurn={!!myTurn}
                 onMoveTo={(key, sameFloor) => send(sameFloor ? Intent.MOVE : Intent.USE_STAIRS, { to: key })}
               />
-            </div>
-          ))}
+            </Suspense>
+          ) : (
+            FLOORS.map((f) => (
+              <div key={f}>
+                <div className="floor-label">{FLOOR_NAME[f]}</div>
+                <FloorMap
+                  floor={f}
+                  tiles={tilesByFloor[f]}
+                  snap={snap}
+                  mySeat={mySeat}
+                  myTurn={!!myTurn}
+                  onMoveTo={(key, sameFloor) => send(sameFloor ? Intent.MOVE : Intent.USE_STAIRS, { to: key })}
+                />
+              </div>
+            ))
+          )}
         </div>
 
         <div className="side">
@@ -263,6 +275,51 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function GameGuide() {
+  return (
+    <div className="guide">
+      <h2>遊戲說明</h2>
+
+      <h3>這是什麼</h3>
+      <p>
+        2～5 人的合作／背叛桌遊。眾人受邀踏入「神秘古宅」尋寶，一邊探索房間、一邊抽牌，
+        直到「預兆」累積觸發<b>揭盅</b>：其中一人其實是<b>做局者</b>，古宅就此分裂成
+        生還者 對 做局者 的對抗。
+      </p>
+
+      <h3>怎麼開始</h3>
+      <ol>
+        <li>填<b>名號</b>（就是你的身分，同名視為同一人；斷線後用同名號＋同房號回到原座）。</li>
+        <li>填<b>房間代碼</b>：同代碼的人會進到同一局。第一個進來的人是房主。</li>
+        <li>房主按「開局」（需 2 人以上）。輸入舊房號可續玩 24 小時內的存檔。</li>
+      </ol>
+
+      <h3>你的四項屬性</h3>
+      <p>眼力・手法・心性・氣力。降到 0 就出局；抽牌與檢定會讓數值增減。</p>
+
+      <h3>回合裡能做的事</h3>
+      <ul>
+        <li><b>探索</b>（探北/東/南/西）：從有門的方向翻開新房間；翻到帶圖示的房間會抽牌並結束移動。</li>
+        <li><b>移動</b>：點地圖上相鄰、有門相連的房間。樓梯／電梯可換樓層。</li>
+        <li><b>拾取／放下</b>腳下的物品。</li>
+        <li>揭盅後才能<b>攻擊</b>同房間的人或怪物。</li>
+        <li><b>結束回合</b>交給下一位。</li>
+      </ul>
+
+      <h3>揭盅與勝負</h3>
+      <ul>
+        <li><b>暗局模式</b>（預設開）：揭盅走「水滴儀式」，每人暗抽一枚標記，抽到「1」的就是做局者，
+          身分保密，開始使用優勢前必須先亮明身分。</li>
+        <li><b>做局者</b>：湊齊 9 件星宿古董送進密室完成大局，或讓生還者全滅。</li>
+        <li><b>生還者</b>：集齊證據揭穿騙局，或讓做局者出局。</li>
+      </ul>
+
+      <h3>畫面切換</h3>
+      <p>右上角「圖示／動畫」可切換 SVG 地圖與 PixiJS 畫布（美術強化版）。</p>
     </div>
   );
 }

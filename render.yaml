@@ -9,9 +9,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      # UPSTASH_REDIS_REST_URL / _TOKEN、GEMINI_API_KEY / _MODEL 都在此 group 內
       - fromGroup: mysterious_mansion_env
-      # Upstash Redis（存檔外部化，缺省時退回記憶體存檔）
-      #- key: UPSTASH_REDIS_REST_URL
-      #  sync: false
-      #- key: UPSTASH_REDIS_REST_TOKEN
-      #  sync: false

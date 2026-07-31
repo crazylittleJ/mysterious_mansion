@@ -13,12 +13,13 @@ export interface GameSnapshot {
   updatedAt: number;
   /** state.toJSON() 的公開狀態 */
   publicState: any;
-  /** server 端機密：真實做局者、標記分配、牌堆順序、playerToken→座位 */
+  /** server 端機密：真實做局者、標記分配、牌堆順序、玩家名稱→座位 */
   secrets: {
     trueTraitorSeat: number;
     tokenBySeat: Record<number, number> | null;
     decks: { events: string[]; items: string[]; omens: string[] };
-    seatByToken: Record<string, number>;
+    /** 正規化後的名稱（normName）→ 座位。以名稱作為玩家唯一識別，不用 IP/token。 */
+    seatByName: Record<string, number>;
     secretVariant: boolean;
   };
 }

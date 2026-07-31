@@ -99,7 +99,7 @@ describe("BetrayalRoom", () => {
 
     const saved = await store.load("GAME3");
     expect(saved).not.toBeNull();
-    expect(Object.keys(saved!.secrets.seatByToken)).toContain("alpha");
+    expect(Object.keys(saved!.secrets.seatByName)).toContain("掌櫃");
 
     // 模擬 server 重啟：舊房解散、新房從快照重建
     await room.disconnect();
@@ -108,11 +108,33 @@ describe("BetrayalRoom", () => {
     expect(room2.state.phase).toBe(Phase.EXPLORATION);
     expect(room2.state.tiles.size).toBe(3);
 
-    const back = await colyseus.connectTo(room2, { roomCode: "GAME3", playerToken: "alpha" });
+    // 以「同名號」回房即回原座（不再靠 token）
+    const back = await colyseus.connectTo(room2, { roomCode: "GAME3", name: "掌櫃" });
     await room2.waitForNextPatch();
     expect(room2.state.players.get("0")!.name).toBe("掌櫃");
     expect(room2.state.players.get("0")!.connected).toBe(true);
     void back;
+  });
+
+  it("rejects a duplicate name while the original is still connected", async () => {
+    const room = await colyseus.createRoom("gudong-betrayal", { roomCode: "DUP1" });
+    await colyseus.connectTo(room, { roomCode: "DUP1", name: "阿一" });
+    await room.waitForNextPatch();
+    // 同名、同房、原玩家仍在線 → 應被拒
+    await expect(colyseus.connectTo(room, { roomCode: "DUP1", name: "阿一" })).rejects.toThrow();
+  });
+
+  it("purges the save when an abandoned LOBBY room is disposed", async () => {
+    const room = await colyseus.createRoom("gudong-betrayal", { roomCode: "IDLE1" });
+    await colyseus.connectTo(room, { roomCode: "IDLE1", name: "獨行客" });
+    await room.waitForNextPatch();
+    await (room as any).persist();
+    expect(await store.load("IDLE1")).not.toBeNull();
+
+    // 從沒開局的房間解散 → onDispose 應清檔（不佔用存檔名額）
+    await room.disconnect();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await store.load("IDLE1")).toBeNull();
   });
 
   it("enforces the 3-save room limit", async () => {
